@@ -5,6 +5,7 @@ license = "Apache-2.0"
 repository = "https://github.com/gballet/jupiter-account"
 authors = ["Guillaume Ballet <gballet@gmail.com>"]
 edition = "2018"
+description = "A helper lib to handle accounts in Jupiter"
 
 [dependencies]
 multiproof-rs = "^0.1.6"

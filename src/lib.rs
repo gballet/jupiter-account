@@ -8,6 +8,36 @@ pub enum Account {
 }
 
 impl Account {
+    pub fn balance(&self) -> u64 {
+        match self {
+            Self::Existing(_, _, balance, _, _) => *balance,
+            _ => 0u64,
+        }
+    }
+
+    pub fn add_balance(&mut self, inc: u64) {
+        match self {
+            Self::Existing(_, _, ref mut balance, _, _) => *balance += inc,
+            _ => panic!("Can not set the balance of an empty account"),
+        }
+    }
+
+    pub fn nonce(&self) -> u64 {
+        match self {
+            Self::Existing(_, nonce, _, _, _) => *nonce,
+            _ => 0u64,
+        }
+    }
+
+    pub fn inc_nonce(&mut self) {
+        match self {
+            Self::Existing(_, ref mut nonce, _, _, _) => *nonce += 1,
+            _ => panic!("Can not set nonce of empty account"),
+        }
+    }
+}
+
+impl Account {
     pub fn deposit(&mut self, amount: u64) -> Result<(), &str> {
         match self {
             Account::Existing(_, _, ref mut balance, _, _) => *balance += amount,

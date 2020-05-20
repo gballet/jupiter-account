@@ -1,4 +1,9 @@
+extern crate secp256k1;
+extern crate sha3;
+
 use multiproof_rs::{Multiproof, NibbleKey};
+use secp256k1::{sign as secp256k1_sign, Message, SecretKey};
+use sha3::{Digest, Keccak256};
 
 #[derive(Debug, PartialEq)]
 pub enum Account {
@@ -163,5 +168,20 @@ impl rlp::Decodable for TxData {
             txs: rlp.list_at(1)?,
             signature: rlp.val_at::<Vec<u8>>(2)?,
         })
+    }
+}
+
+impl TxData {
+    pub fn sign(&mut self, skey: &[u8; 32]) {
+        let skey = SecretKey::parse(skey).unwrap();
+        let mut keccak256 = Keccak256::new();
+        for tx in self.txs.iter() {
+            keccak256.input(rlp::encode(tx));
+        }
+        let message_data = keccak256.result_reset();
+        let message = Message::parse_slice(&message_data).unwrap();
+        let (sig, recid) = secp256k1_sign(&message, &skey);
+        self.signature[..64].copy_from_slice(&sig.serialize()[..]);
+        self.signature[64] = recid.serialize();
     }
 }

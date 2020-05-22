@@ -2,7 +2,10 @@ extern crate secp256k1;
 extern crate sha3;
 
 use multiproof_rs::{Multiproof, NibbleKey};
-use secp256k1::{sign as secp256k1_sign, Message, SecretKey};
+use secp256k1::{
+    recover as secp256k1_recover, sign as secp256k1_sign, verify as secp256k1_verify, Message,
+    RecoveryId, SecretKey, Signature,
+};
 use sha3::{Digest, Keccak256};
 
 #[derive(Debug, PartialEq)]
@@ -183,5 +186,29 @@ impl TxData {
         let (sig, recid) = secp256k1_sign(&message, &skey);
         self.signature[..64].copy_from_slice(&sig.serialize()[..]);
         self.signature[64] = recid.serialize();
+    }
+
+    pub fn sig_check(&self) -> (bool, Vec<u8>) {
+        // Recover the signature from the tx data.
+        // All transactions have to come from the
+        // same sender to be accepted.
+        let mut keccak256 = Keccak256::new();
+        for tx in self.txs.iter() {
+            keccak256.input(rlp::encode(tx));
+        }
+        let message_data = keccak256.result_reset();
+        let message = Message::parse_slice(&message_data).unwrap();
+        let signature = Signature::parse_slice(&self.signature[..64]).unwrap();
+        let recover = RecoveryId::parse(self.signature[64]).unwrap();
+        let pkey = secp256k1_recover(&message, &signature, &recover).unwrap();
+
+        // Verify the signature
+        if !secp256k1_verify(&message, &signature, &pkey) {
+            return (false, Vec::new());
+        }
+
+        // Get the address
+        keccak256.input(&pkey.serialize()[..]);
+        (true, keccak256.result()[..20].to_vec())
     }
 }

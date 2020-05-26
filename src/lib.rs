@@ -1,7 +1,7 @@
 extern crate secp256k1;
 extern crate sha3;
 
-use multiproof_rs::{Multiproof, NibbleKey};
+use multiproof_rs::{ByteKey, Multiproof, NibbleKey};
 use secp256k1::{
     recover as secp256k1_recover, sign as secp256k1_sign, verify as secp256k1_verify, Message,
     RecoveryId, SecretKey, Signature,
@@ -11,7 +11,7 @@ use sha3::{Digest, Keccak256};
 #[derive(Debug, PartialEq)]
 pub enum Account {
     // Address, nonce, value, code, state
-    Existing(NibbleKey, u64, u64, Vec<u8>, bool),
+    Existing(NibbleKey, u64, u64, Vec<u8>, Vec<u8>),
     Empty,
 }
 
@@ -118,6 +118,7 @@ pub struct Tx {
     pub nonce: u64,
     pub value: u64,
     pub call: u32, // Txs have only one instruction in this model, and it's a "call"
+    pub signature: Vec<u8>,
 }
 
 impl rlp::Encodable for Tx {
@@ -129,6 +130,7 @@ impl rlp::Encodable for Tx {
             .append(&self.nonce)
             .append(&self.value)
             .append(&self.call)
+            .append(&self.signature)
             .finalize_unbounded_list();
     }
 }
@@ -141,7 +143,62 @@ impl rlp::Decodable for Tx {
             nonce: rlp.val_at(2)?,
             value: rlp.val_at(3)?,
             call: rlp.val_at(4)?,
+            signature: rlp.val_at(5)?,
         })
+    }
+}
+
+impl Tx {
+    pub fn new(from: Vec<u8>, to: Vec<u8>, nonce: u64) -> Self {
+        Tx {
+            from: NibbleKey::from(ByteKey::from(from)),
+            to: NibbleKey::from(ByteKey::from(to)),
+            nonce: nonce,
+            signature: vec![0u8; 65],
+            call: 0,
+            value: 0,
+        }
+    }
+    pub fn sign(&mut self, skey: &[u8; 32]) {
+        let skey = SecretKey::parse(skey).unwrap();
+        let mut keccak256 = Keccak256::new();
+        keccak256.input(rlp::encode(&self.from));
+        keccak256.input(rlp::encode(&self.to));
+        keccak256.input(rlp::encode(&self.nonce));
+        keccak256.input(rlp::encode(&self.value));
+        keccak256.input(rlp::encode(&self.call));
+        let message_data = keccak256.result();
+        let message = Message::parse_slice(&message_data).unwrap();
+        let (sig, recid) = secp256k1_sign(&message, &skey);
+        self.signature[..64].copy_from_slice(&sig.serialize()[..]);
+        self.signature[64] = recid.serialize();
+    }
+
+    pub fn sig_check(&self) -> (bool, NibbleKey) {
+        // Recover the signature from the tx data.
+        let mut keccak256 = Keccak256::new();
+        keccak256.input(rlp::encode(&self.from));
+        keccak256.input(rlp::encode(&self.to));
+        keccak256.input(rlp::encode(&self.nonce));
+        keccak256.input(rlp::encode(&self.value));
+        keccak256.input(rlp::encode(&self.call));
+        let message_data = keccak256.result_reset();
+        let message = Message::parse_slice(&message_data).unwrap();
+        let signature = Signature::parse_slice(&self.signature[..64]).unwrap();
+        let recover = RecoveryId::parse(self.signature[64]).unwrap();
+        let pkey = secp256k1_recover(&message, &signature, &recover).unwrap();
+
+        // Verify the signature
+        if !secp256k1_verify(&message, &signature, &pkey) {
+            return (false, NibbleKey::from(vec![]));
+        }
+
+        // Get the address
+        keccak256.input(&pkey.serialize()[..]);
+        let addr = keccak256.result()[..20].to_vec();
+        let addr = NibbleKey::from(ByteKey::from(addr));
+
+        return (addr.clone() == self.from, addr);
     }
 }
 
@@ -150,7 +207,6 @@ impl rlp::Decodable for Tx {
 pub struct TxData {
     pub proof: Multiproof,
     pub txs: Vec<Tx>,
-    pub signature: Vec<u8>,
 }
 
 impl rlp::Encodable for TxData {
@@ -159,7 +215,6 @@ impl rlp::Encodable for TxData {
             .begin_unbounded_list()
             .append(&self.proof)
             .append_list(&self.txs)
-            .append(&self.signature)
             .finalize_unbounded_list();
     }
 }
@@ -169,46 +224,29 @@ impl rlp::Decodable for TxData {
         Ok(TxData {
             proof: rlp.val_at::<Multiproof>(0)?,
             txs: rlp.list_at(1)?,
-            signature: rlp.val_at::<Vec<u8>>(2)?,
         })
     }
 }
 
-impl TxData {
-    pub fn sign(&mut self, skey: &[u8; 32]) {
-        let skey = SecretKey::parse(skey).unwrap();
-        let mut keccak256 = Keccak256::new();
-        for tx in self.txs.iter() {
-            keccak256.input(rlp::encode(tx));
-        }
-        let message_data = keccak256.result_reset();
-        let message = Message::parse_slice(&message_data).unwrap();
-        let (sig, recid) = secp256k1_sign(&message, &skey);
-        self.signature[..64].copy_from_slice(&sig.serialize()[..]);
-        self.signature[64] = recid.serialize();
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    pub fn sig_check(&self) -> (bool, Vec<u8>) {
-        // Recover the signature from the tx data.
-        // All transactions have to come from the
-        // same sender to be accepted.
-        let mut keccak256 = Keccak256::new();
-        for tx in self.txs.iter() {
-            keccak256.input(rlp::encode(tx));
-        }
-        let message_data = keccak256.result_reset();
-        let message = Message::parse_slice(&message_data).unwrap();
-        let signature = Signature::parse_slice(&self.signature[..64]).unwrap();
-        let recover = RecoveryId::parse(self.signature[64]).unwrap();
-        let pkey = secp256k1_recover(&message, &signature, &recover).unwrap();
+    #[test]
+    fn test_sign() {
+        let skey = [1u8; 32];
+        let mut tx = Tx::new(
+            vec![
+                181, 154, 35, 232, 170, 166, 228, 13, 59, 214, 229, 236, 205, 9, 152, 122, 184, 20,
+                30, 197,
+            ],
+            vec![6u8; 20],
+            1,
+        );
 
-        // Verify the signature
-        if !secp256k1_verify(&message, &signature, &pkey) {
-            return (false, Vec::new());
-        }
+        tx.sign(&skey);
 
-        // Get the address
-        keccak256.input(&pkey.serialize()[..]);
-        (true, keccak256.result()[..20].to_vec())
+        let (valid, _addr) = tx.sig_check();
+        assert!(valid);
     }
 }

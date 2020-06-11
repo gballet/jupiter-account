@@ -118,6 +118,7 @@ pub struct Tx {
     pub nonce: u64,
     pub value: u64,
     pub call: u32, // Txs have only one instruction in this model, and it's a "call"
+    pub data: Vec<u8>,
     pub signature: Vec<u8>,
 }
 
@@ -130,6 +131,7 @@ impl rlp::Encodable for Tx {
             .append(&self.nonce)
             .append(&self.value)
             .append(&self.call)
+            .append(&self.data)
             .append(&self.signature)
             .finalize_unbounded_list();
     }
@@ -143,7 +145,8 @@ impl rlp::Decodable for Tx {
             nonce: rlp.val_at(2)?,
             value: rlp.val_at(3)?,
             call: rlp.val_at(4)?,
-            signature: rlp.val_at(5)?,
+            data: rlp.val_at(5)?,
+            signature: rlp.val_at(6)?,
         })
     }
 }
@@ -157,6 +160,7 @@ impl Tx {
             signature: vec![0u8; 65],
             call: 0,
             value: 0,
+            data: vec![],
         }
     }
     pub fn sign(&mut self, skey: &[u8; 32]) {
@@ -167,6 +171,7 @@ impl Tx {
         keccak256.input(rlp::encode(&self.nonce));
         keccak256.input(rlp::encode(&self.value));
         keccak256.input(rlp::encode(&self.call));
+        keccak256.input(rlp::encode(&self.data));
         let message_data = keccak256.result();
         let message = Message::parse_slice(&message_data).unwrap();
         let (sig, recid) = secp256k1_sign(&message, &skey);
@@ -182,6 +187,7 @@ impl Tx {
         keccak256.input(rlp::encode(&self.nonce));
         keccak256.input(rlp::encode(&self.value));
         keccak256.input(rlp::encode(&self.call));
+        keccak256.input(rlp::encode(&self.data));
         let message_data = keccak256.result_reset();
         let message = Message::parse_slice(&message_data).unwrap();
         let signature = Signature::parse_slice(&self.signature[..64]).unwrap();

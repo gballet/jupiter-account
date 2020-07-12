@@ -69,6 +69,19 @@ impl Account {
     }
 }
 
+impl From<SecretKey> for Account {
+    fn from(sk: SecretKey) -> Self {
+        let msg = Message::parse_slice(&[0x55u8; 32]).unwrap();
+        let (user1_sig, user1_recid) = secp256k1_sign(&msg, &sk);
+        let user1_pkey = secp256k1_recover(&msg, &user1_sig, &user1_recid).unwrap();
+        let mut keccak256 = Keccak256::new();
+        keccak256.input(&user1_pkey.serialize()[..]);
+        let addr1 = keccak256.result_reset()[..20].to_vec();
+        let user1_addr = NibbleKey::from(ByteKey::from(addr1));
+        Account::Existing(user1_addr, 0, 0, vec![], vec![])
+    }
+}
+
 impl rlp::Decodable for Account {
     fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
         match rlp.item_count()? {

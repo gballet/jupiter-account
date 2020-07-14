@@ -43,9 +43,7 @@ impl Account {
             _ => None,
         }
     }
-}
 
-impl Account {
     pub fn deposit(&mut self, amount: u64) -> Result<(), &str> {
         match self {
             Account::Existing(_, _, ref mut balance, _, _) => *balance += amount,
@@ -69,8 +67,8 @@ impl Account {
     }
 }
 
-impl From<SecretKey> for Account {
-    fn from(sk: SecretKey) -> Self {
+impl From<&SecretKey> for Account {
+    fn from(sk: &SecretKey) -> Self {
         let msg = Message::parse_slice(&[0x55u8; 32]).unwrap();
         let (user1_sig, user1_recid) = secp256k1_sign(&msg, &sk);
         let user1_pkey = secp256k1_recover(&msg, &user1_sig, &user1_recid).unwrap();

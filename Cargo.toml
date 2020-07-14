@@ -1,6 +1,6 @@
 [package]
 name = "jupiter-account"
-version = "0.1.8"
+version = "0.1.9"
 license = "Apache-2.0"
 repository = "https://github.com/gballet/jupiter-account"
 authors = ["Guillaume Ballet <gballet@gmail.com>"]
@@ -8,7 +8,7 @@ edition = "2018"
 description = "A helper lib to handle accounts in Jupiter"
 
 [dependencies]
-multiproof-rs = "^0.1.6"
+multiproof-rs = "^0.1.8"
 rlp = "0.4.4"
 libsecp256k1 = "^0.3.5"
 sha3 = "^0.8.2"
